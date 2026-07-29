@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>POS System</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+
+    <div class="topbar">
+        Logged in as: <strong>{{ username }}</strong> ({{ role }})
+        <span style="float:right;">
+            <a href="/logout">Logout</a>
+            {% if role == "admin" %}
+            <a href="/admin">Admin</a>
+            <a href="/daily_report">Daily Report</a>
+            <a href="/void_page">Void Page</a>
+            {% endif %}
+        </span>
+    </div>
+
+    <div class="container">
+        <div class="card">
+            <h1>POS System</h1>
+        </div>
+
+        <div style="display:flex; gap:20px; align-items:flex-start; flex-wrap:wrap;">
+
+            <div class="card" style="flex:2; min-width:320px;">
+                <h2>Items</h2>
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px;">
+                    {% for item in items %}
+                    <button class="btn" style="padding:12px; display: flex; flex-direction: column; align-items: center; justify-content: center;" onclick='addItem({{ item.name|tojson }}, {{ item.price }})'>
+                        <strong style="text-transform: uppercase; font-size: 1.2rem; margin-bottom: 4px;">{{ item.name }}</strong>
+                        <span style="font-size: 1.3rem; font-weight: bold; margin-bottom: 2px;">${{ "%.2f"|format(item.price) }}</span>    
+                        <small style="font-size: 0.85em; opacity: 0.8;">{{ "%.0f"|format(item.price * 90000) }} LBP</small>
+                        </button>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="card" style="flex:1; min-width:320px;">
+                <h2>Cart</h2>
+                <ul id="cart" style="list-style:none; padding-left:0;"></ul>
+
+                <div style="margin-top: 15px; border-top: 2px solid #ddd; padding-top: 10px;">
+                    <h3>Total: $<span id="total">0.00</span></h3>
+                    <h3 style="color: #4b5563;">Total LBP: <span id="total-lbp">0</span> LBP</h3>
+                </div>
+
+                <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top: 15px;">
+                    <button class="btn" onclick="checkout()">Checkout</button>
+                    <button class="btn" style="background:#6b7280;" onclick="clearCart()">Clear Cart</button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const EXCHANGE_RATE = 90000;
+        let cart = [];
+        let total = 0;
+
+        function addItem(name, price) {
+            let existingItem = cart.find(item => item.name === name);
+
+            if (existingItem) {
+                existingItem.quantity += 1;
+                existingItem.line_total = existingItem.quantity * existingItem.price;
+            } else {
+                cart.push({
+                    name: name,
+                    price: price,
+                    quantity: 1,
+                    line_total: price
+                });
+            }
+
+            updateCart();
+        }
+
+        function decreaseItem(name) {
+            let existingItem = cart.find(item => item.name === name);
+
+            if (!existingItem) return;
+
+            existingItem.quantity -= 1;
+
+            if (existingItem.quantity <= 0) {
+                cart = cart.filter(item => item.name !== name);
+            } else {
+                existingItem.line_total = existingItem.quantity * existingItem.price;
+            }
+
+            updateCart();
+        }
+
+        function removeItem(name) {
+            cart = cart.filter(item => item.name !== name);
+            updateCart();
+        }
+
+        function clearCart() {
+            cart = [];
+            total = 0;
+            updateCart();
+        }
+
+        function updateCart() {
+            let cartList = document.getElementById("cart");
+            cartList.innerHTML = "";
+            total = 0;
+
+            cart.forEach(item => {
+                let li = document.createElement("li");
+                li.style.marginBottom = "12px";
+                li.style.padding = "10px";
+                li.style.border = "1px solid #ddd";
+                li.style.borderRadius = "8px";
+                li.style.background = "#fafafa";
+
+                let unitLbp = item.price * EXCHANGE_RATE;
+                let lineLbp = item.line_total * EXCHANGE_RATE;
+
+                li.innerHTML = `
+                    <div><strong>${item.name}</strong></div>
+                    <div>Qty: ${item.quantity} | Unit: $${Number(item.price).toFixed(2)} (${Math.round(unitLbp).toLocaleString()} LBP)</div>
+                    <div>Line Total: $${Number(item.line_total).toFixed(2)} (${Math.round(lineLbp).toLocaleString()} LBP)</div>
+                    <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+                        <button class="btn" onclick='addItem(${JSON.stringify(item.name)}, ${item.price})'>+</button>
+                        <button class="btn" style="background:#f59e0b;" onclick='decreaseItem(${JSON.stringify(item.name)})'>-</button>
+                        <button class="btn" style="background:#dc2626;" onclick='removeItem(${JSON.stringify(item.name)})'>Remove</button>
+                    </div>
+                `;
+
+                cartList.appendChild(li);
+                total += item.line_total;
+            });
+
+            document.getElementById("total").textContent = total.toFixed(2);
+            document.getElementById("total-lbp").textContent = Math.round(total * EXCHANGE_RATE).toLocaleString();
+        }
+
+        function checkout() {
+            if (cart.length === 0) {
+                alert("Cart is empty");
+                return;
+            }
+
+            fetch("/checkout", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    cart: cart,
+                    total: total
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    alert(data.message);
+                    clearCart();
+                })
+                .catch(error => {
+                    console.error("Checkout error:", error);
+                    alert("Checkout failed");
+                });
+        }
+    </script>
+<!-- QZ Tray Dependencies -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/rsvp/4.8.5/rsvp.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qz-tray/2.2.4/qz-tray.js"></script>
+
+    <script>
+        const EXCHANGE_RATE = 90000;
+        let cart = [];
+        let total = 0;
+
+        // Connect to QZ Tray when the page loads
+        window.addEventListener('load', function() {
+            if (!qz.websocket.isActive()) {
+                qz.websocket.connect().catch(function(err) {
+                    console.error("QZ Tray Connection Error: " + err);
+                });
+            }
+        });
+
+        function addItem(name, price) {
+            let existingItem = cart.find(item => item.name === name);
+
+            if (existingItem) {
+                existingItem.quantity += 1;
+                existingItem.line_total = existingItem.quantity * existingItem.price;
+            } else {
+                cart.push({
+                    name: name,
+                    price: price,
+                    quantity: 1,
+                    line_total: price
+                });
+            }
+
+            updateCart();
+        }
+
+        function decreaseItem(name) {
+            let existingItem = cart.find(item => item.name === name);
+
+            if (!existingItem) return;
+
+            existingItem.quantity -= 1;
+
+            if (existingItem.quantity <= 0) {
+                cart = cart.filter(item => item.name !== name);
+            } else {
+                existingItem.line_total = existingItem.quantity * existingItem.price;
+            }
+
+            updateCart();
+        }
+
+        function removeItem(name) {
+            cart = cart.filter(item => item.name !== name);
+            updateCart();
+        }
+
+        function clearCart() {
+            cart = [];
+            total = 0;
+            updateCart();
+        }
+
+        function updateCart() {
+            let cartList = document.getElementById("cart");
+            cartList.innerHTML = "";
+            total = 0;
+
+            cart.forEach(item => {
+                let li = document.createElement("li");
+                li.style.marginBottom = "12px";
+                li.style.padding = "10px";
+                li.style.border = "1px solid #ddd";
+                li.style.borderRadius = "8px";
+                li.style.background = "#fafafa";
+
+                let unitLbp = item.price * EXCHANGE_RATE;
+                let lineLbp = item.line_total * EXCHANGE_RATE;
+
+                li.innerHTML = `
+                    <div><strong>${item.name}</strong></div>
+                    <div>Qty: ${item.quantity} | Unit: $${Number(item.price).toFixed(2)} (${Math.round(unitLbp).toLocaleString()} LBP)</div>
+                    <div>Line Total: $${Number(item.line_total).toFixed(2)} (${Math.round(lineLbp).toLocaleString()} LBP)</div>
+                    <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+                        <button class="btn" onclick='addItem(${JSON.stringify(item.name)}, ${item.price})'>+</button>
+                        <button class="btn" style="background:#f59e0b;" onclick='decreaseItem(${JSON.stringify(item.name)})'>-</button>
+                        <button class="btn" style="background:#dc2626;" onclick='removeItem(${JSON.stringify(item.name)})'>Remove</button>
+                    </div>
+                `;
+
+                cartList.appendChild(li);
+                total += item.line_total;
+            });
+
+            document.getElementById("total").textContent = total.toFixed(2);
+            document.getElementById("total-lbp").textContent = Math.round(total * EXCHANGE_RATE).toLocaleString();
+        }
+
+        // Generate ESC/POS raw formatting for 58mm thermal rolls
+        function createReceiptData(cartItems, orderTotal) {
+            const LINE_WIDTH = 32;
+            let receipt = "";
+
+            function center(text) {
+                const space = Math.max(0, Math.floor((LINE_WIDTH - text.length) / 2));
+                return " ".repeat(space) + text + "\n";
+            }
+
+            receipt += center("POS STORE");
+            receipt += "=".repeat(LINE_WIDTH) + "\n";
+            receipt += `Date: ${new Date().toLocaleString()}\n`;
+            receipt += "-".repeat(LINE_WIDTH) + "\n";
+            receipt += "Item           Qty   Price\n";
+            receipt += "-".repeat(LINE_WIDTH) + "\n";
+
+            cartItems.forEach(item => {
+                let name = item.name.padEnd(14, " ").substring(0, 14);
+                let qty = String(item.quantity).padStart(3, " ");
+                let price = (item.line_total).toFixed(2).padStart(6, " ");
+                receipt += `${name} ${qty} ${price}\n`;
+            });
+
+            receipt += "-".repeat(LINE_WIDTH) + "\n";
+            receipt += `TOTAL: $${orderTotal.toFixed(2).padStart(22, " ")}\n`;
+            receipt += `TOTAL LBP: ${Math.round(orderTotal * EXCHANGE_RATE).toLocaleString()}\n`;
+            receipt += "=".repeat(LINE_WIDTH) + "\n";
+            receipt += center("Thank You!");
+            receipt += "\n\n\n\x1B\x69"; // Padding and auto paper cut command
+
+            return receipt;
+        }
+
+        // QZ Tray Print Handler
+        function printReceipt(cartItems, orderTotal) {
+            qz.websocket.connect().then(function() {
+                return qz.printers.find("P300_USB001");
+            }).then(function(printerName) {
+                var config = qz.configs.create(printerName);
+                var data = [{
+                    type: 'raw',
+                    format: 'plain',
+                    data: createReceiptData(cartItems, orderTotal)
+                }];
+                return qz.print(config, data);
+            }).catch(function(err) {
+                console.error("Printing error: ", err);
+                alert("Receipt print failed: " + err);
+            });
+        }
+
+        function checkout() {
+            if (cart.length === 0) {
+                alert("Cart is empty");
+                return;
+            }
+
+            // Keep a local copy of cart data for printing before clearing it
+            let currentCart = [...cart];
+            let currentTotal = total;
+
+            fetch("/checkout", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    cart: cart,
+                    total: total
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    alert(data.message);
+                    
+                    // Trigger receipt print immediately after successful checkout response
+                    printReceipt(currentCart, currentTotal);
+                    
+                    clearCart();
+                })
+                .catch(error => {
+                    console.error("Checkout error:", error);
+                    alert("Checkout failed");
+                });
+        }
+    </script>
+    </body>
+
+</html>
